@@ -9,48 +9,46 @@ import click
 import questionary
 from solders.keypair import Keypair
 
-SHOW_AT_ONCE = 10000
+SHOW_AT_ONCE = 10_000
 
 
 @dataclass
 class Wallet:
-    public_key: str
-    private_key: str
+	public_key: str
+	private_key: str
 
 
-def create_wallet() -> Wallet:
-	"""Создает кошелек с публичным и приватным ключами"""
-	keypair = Keypair()
-	public_key = str(keypair.pubkey())
-	private_key = base58.b58encode(bytes(keypair)).decode()
-
-	return Wallet(public_key, private_key)
-
-
-def wallet_matches(wallet: Wallet, start_pattern: str, end_pattern: str) -> bool:
+def wallet_matches(public_key: str, start_pattern: str, end_pattern: str) -> bool:
 	"""Проверяет, удовлетворяет ли кошелек заданным условиям"""
-	return (start_pattern and wallet.public_key.startswith(start_pattern)) or \
-		   (end_pattern and wallet.public_key.endswith(end_pattern))
+	return (start_pattern and public_key.startswith(start_pattern)) or \
+		   (end_pattern and public_key.endswith(end_pattern))
 
 
 def find_wallet_worker(
-		start_pattern: str, end_pattern: str,
-		result_queue: multiprocessing.Queue,
-		progress_queue: multiprocessing.Queue, process_id: int
-	) -> None:
+	start_pattern: str,
+	end_pattern: str,
+	result_queue: multiprocessing.Queue,
+	progress_queue: multiprocessing.Queue,
+	process_id: int,
+) -> None:
 	"""Работник для поиска кошельков. Результат отправляется в очередь"""
 	count = 0
+	to_report = SHOW_AT_ONCE
 
 	try:
 		while True:
 			count += 1
-			wallet = create_wallet()
-			if count % SHOW_AT_ONCE == 0:
+			to_report -= 1
+			keypair = Keypair()
+			public_key = str(keypair.pubkey())
+
+			if to_report == 0:
 				# Отправляем прогресс в главную очередь
 				progress_queue.put((process_id, count))
+				to_report = SHOW_AT_ONCE
 
-			if wallet_matches(wallet, start_pattern, end_pattern):
-				result_queue.put(wallet)
+			if wallet_matches(public_key, start_pattern, end_pattern):
+				result_queue.put(Wallet(public_key, base58.b58encode(bytes(keypair)).decode()))
 				break
 	except KeyboardInterrupt:
 		print(f'[Процесс {process_id}] Завершение работы')
@@ -178,6 +176,7 @@ def main():
 	print(f'\nНайден кошелек за {elapsed_time:.2f} секунд!')
 	print(f'Публичный ключ: {wallet.public_key}')
 	print(f'Приватный ключ: {wallet.private_key}')
+
 
 if __name__ == '__main__':
 	signal.signal(signal.SIGINT, signal_handler)
